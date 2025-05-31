@@ -303,8 +303,8 @@ run_preflight_checks() {
     fi
     
     # Check available disk space
-    AVAILABLE_SPACE=$(df -h . | awk 'NR==2 {print $4}' | sed 's/G//')
-    if [ "${AVAILABLE_SPACE%.*}" -lt 5 ]; then
+    AVAILABLE_SPACE=$(df -h . | awk 'NR==2 {print $4}' | sed 's/[^0-9.]//g')
+    if [ -n "$AVAILABLE_SPACE" ] && [ "${AVAILABLE_SPACE%.*}" -lt 5 ] 2>/dev/null; then
         log_warning "Low disk space detected. At least 5GB recommended for models and dependencies"
     else
         log_success "Disk space check passed"
@@ -561,4 +561,3 @@ trap 'log_error "Installation interrupted"; exit 1' INT
 
 # Run main installation
 main "$@"
-
