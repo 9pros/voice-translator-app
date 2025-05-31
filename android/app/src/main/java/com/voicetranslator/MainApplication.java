@@ -12,6 +12,7 @@ import java.util.List;
 
 // Import SeamlessM4T package
 import com.voicetranslator.seamless.SeamlessM4TPackage;
+import com.voicetranslator.voicecloning.VoiceCloningPackage;
 
 public class MainApplication extends Application implements ReactApplication {
 
@@ -29,6 +30,9 @@ public class MainApplication extends Application implements ReactApplication {
           
           // Add SeamlessM4T package
           packages.add(new SeamlessM4TPackage());
+          
+          // Add Voice Cloning package
+          packages.add(new VoiceCloningPackage());
           
           return packages;
         }
@@ -65,4 +69,3 @@ public class MainApplication extends Application implements ReactApplication {
     ReactNativeFlipper.initializeFlipper(this, getReactNativeHost().getReactInstanceManager());
   }
 }
-

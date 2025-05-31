@@ -6,11 +6,13 @@
   "scripts": {
     "android": "react-native run-android",
     "ios": "react-native run-ios",
+    "lint": "eslint .",
     "start": "react-native start",
     "test": "jest",
-    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
-    "build:android": "cd android && ./gradlew assembleRelease",
-    "build:ios": "cd ios && xcodebuild -workspace VoiceTranslator.xcworkspace -scheme VoiceTranslator -configuration Release -destination generic/platform=iOS -archivePath VoiceTranslator.xcarchive archive"
+    "clean": "cd android && ./gradlew clean && cd ../ios && xcodebuild clean",
+    "clean-install": "rm -rf node_modules && npm install && cd ios && pod install",
+    "setup-models": "node scripts/download-models.js",
+    "test-voice": "./test-voice-features.sh"
   },
   "dependencies": {
     "react": "18.2.0",

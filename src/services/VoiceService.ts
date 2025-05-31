@@ -4,6 +4,7 @@ import Tts from 'react-native-tts';
 import RNFS from 'react-native-fs';
 import {VoiceProfile, AudioChunk, TranslationResult} from '../types';
 import SeamlessM4TService from './SeamlessM4TService';
+import VoiceCloningService from './VoiceCloningService';
 
 class VoiceService {
   private audioRecorderPlayer: AudioRecorderPlayer;
@@ -13,12 +14,14 @@ class VoiceService {
   private audioChunks: AudioChunk[] = [];
   private currentRecordingId: string = '';
   private useNativeProcessing: boolean = true;
+  private voiceCloningEnabled: boolean = true;
 
   constructor() {
     this.audioRecorderPlayer = new AudioRecorderPlayer();
     this.initializeVoice();
     this.initializeTts();
     this.initializeNativeProcessing();
+    this.initializeVoiceCloning();
   }
 
   private initializeVoice() {
@@ -45,6 +48,17 @@ class VoiceService {
     } catch (error) {
       console.error('Failed to initialize native voice processing:', error);
       this.useNativeProcessing = false;
+    }
+  }
+
+  private async initializeVoiceCloning() {
+    try {
+      const isReady = await VoiceCloningService.isReady();
+      this.voiceCloningEnabled = isReady;
+      console.log(`Voice cloning mode: ${isReady ? 'Enabled' : 'Disabled'}`);
+    } catch (error) {
+      console.error('Failed to initialize voice cloning:', error);
+      this.voiceCloningEnabled = false;
     }
   }
 
@@ -286,61 +300,313 @@ class VoiceService {
 
   // Voice Profile Methods
   async createVoiceProfile(
-    name: string,
-    language: string,
-    sampleTexts: string[],
+    profileName: string,
+    audioSamples: string[],
+    characteristics?: any
   ): Promise<VoiceProfile> {
     try {
-      const profileId = `profile_${Date.now()}`;
-      const audioSamples: string[] = [];
-
-      // Record audio samples for each text
-      for (let i = 0; i < sampleTexts.length; i++) {
-        const samplePath = `${RNFS.DocumentDirectoryPath}/${profileId}_sample_${i}.m4a`;
-        
-        // In a real implementation, you would:
-        // 1. Display the text to the user
-        // 2. Record their voice saying the text
-        // 3. Save the audio file
-        // 4. Process the audio to extract voice characteristics
-        
-        audioSamples.push(samplePath);
+      if (!this.voiceCloningEnabled) {
+        throw new Error('Voice cloning not available');
       }
 
-      const voiceProfile: VoiceProfile = {
-        id: profileId,
-        name,
-        language,
+      return await VoiceCloningService.createVoiceProfile(
+        profileName,
         audioSamples,
-        createdAt: new Date(),
-        isActive: false,
-      };
-
-      return voiceProfile;
+        characteristics
+      );
     } catch (error) {
-      console.error('Failed to create voice profile:', error);
+      console.error('Voice profile creation failed:', error);
       throw error;
     }
   }
 
-  async trainVoiceProfile(voiceProfile: VoiceProfile): Promise<VoiceProfile> {
+  async getVoiceProfiles(): Promise<VoiceProfile[]> {
     try {
-      // In a real implementation, this would:
-      // 1. Process all audio samples
-      // 2. Extract voice characteristics (pitch, tone, speed, etc.)
-      // 3. Create a voice model
-      // 4. Save the trained model
+      if (!this.voiceCloningEnabled) {
+        return [];
+      }
+
+      return await VoiceCloningService.getVoiceProfiles();
+    } catch (error) {
+      console.error('Failed to get voice profiles:', error);
+      return [];
+    }
+  }
+
+  async setActiveVoiceProfile(profileId: string): Promise<void> {
+    try {
+      if (!this.voiceCloningEnabled) {
+        throw new Error('Voice cloning not available');
+      }
+
+      await VoiceCloningService.setActiveProfile(profileId);
+    } catch (error) {
+      console.error('Failed to set active voice profile:', error);
+      throw error;
+    }
+  }
+
+  async getActiveVoiceProfile(): Promise<VoiceProfile | null> {
+    try {
+      if (!this.voiceCloningEnabled) {
+        return null;
+      }
+
+      return await VoiceCloningService.getActiveProfile();
+    } catch (error) {
+      console.error('Failed to get active voice profile:', error);
+      return null;
+    }
+  }
+
+  // Enhanced translation with voice cloning
+  async translateVoiceWithCloning(
+    audioPath: string,
+    sourceLanguage: string,
+    targetLanguage: string,
+    preserveVoice: boolean = true,
+    voiceProfile?: VoiceProfile,
+  ): Promise<{translatedAudioPath: string; translationResult: TranslationResult; similarity?: number}> {
+    try {
+      // First, get the text translation
+      let translationResult: TranslationResult;
       
-      // Mock training process
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      if (this.useNativeProcessing && await SeamlessM4TService.isReady()) {
+        translationResult = await SeamlessM4TService.translateSpeechToText(
+          audioPath,
+          sourceLanguage,
+          targetLanguage,
+        );
+      } else {
+        // Fallback to API-based translation
+        translationResult = await this.translateVoiceWithAPI(
+          audioPath,
+          sourceLanguage,
+          targetLanguage,
+          voiceProfile,
+        );
+      }
+
+      let translatedAudioPath: string;
+      let similarity: number | undefined;
+
+      // Apply voice cloning if enabled and requested
+      if (this.voiceCloningEnabled && preserveVoice) {
+        const voiceCloneResult = await VoiceCloningService.translateWithVoiceCloning(
+          audioPath,
+          translationResult.translatedText,
+          targetLanguage,
+          preserveVoice
+        );
+        
+        translatedAudioPath = voiceCloneResult.audioPath;
+        similarity = voiceCloneResult.similarity;
+      } else if (voiceProfile) {
+        // Use existing voice profile for synthesis
+        const synthesisResult = await VoiceCloningService.synthesizeVoiceWithCloning(
+          translationResult.translatedText,
+          voiceProfile.id,
+          {
+            language: targetLanguage,
+            characteristics: voiceProfile.characteristics,
+            quality: 'high'
+          }
+        );
+        
+        translatedAudioPath = synthesisResult.audioPath;
+        similarity = synthesisResult.similarity;
+      } else {
+        // Standard TTS without voice cloning
+        translatedAudioPath = await this.synthesizeTextToSpeech(
+          translationResult.translatedText,
+          targetLanguage
+        );
+      }
 
       return {
-        ...voiceProfile,
-        isActive: true,
+        translatedAudioPath,
+        translationResult,
+        similarity
       };
     } catch (error) {
-      console.error('Failed to train voice profile:', error);
+      console.error('Voice translation with cloning failed:', error);
       throw error;
+    }
+  }
+
+  // Real-time voice cloning for calls
+  async processRealTimeVoiceCloning(
+    audioChunk: AudioChunk,
+    sourceLanguage: string,
+    targetLanguage: string,
+    voiceProfile?: VoiceProfile,
+  ): Promise<{translatedAudio: string; translationResult: TranslationResult; similarity?: number} | null> {
+    try {
+      // Process real-time audio with SeamlessM4T
+      let translationResult: TranslationResult | null = null;
+      
+      if (this.useNativeProcessing && await SeamlessM4TService.isReady()) {
+        const seamlessResult = await SeamlessM4TService.processRealTimeAudio(
+          audioChunk,
+          sourceLanguage,
+          targetLanguage,
+        );
+        
+        if (seamlessResult) {
+          translationResult = seamlessResult.translationResult;
+        }
+      }
+
+      if (!translationResult) {
+        // Fallback to API processing
+        const fallbackResult = await this.processRealTimeAudioWithAPI(
+          audioChunk,
+          sourceLanguage,
+          targetLanguage,
+          voiceProfile,
+        );
+        
+        if (fallbackResult) {
+          translationResult = fallbackResult.translationResult;
+        }
+      }
+
+      if (!translationResult) {
+        return null;
+      }
+
+      // Apply voice cloning for real-time processing
+      if (this.voiceCloningEnabled) {
+        const voiceCloneResult = await VoiceCloningService.processRealTimeVoiceCloning(
+          audioChunk,
+          translationResult.translatedText,
+          targetLanguage,
+          voiceProfile?.id
+        );
+
+        if (voiceCloneResult) {
+          return {
+            translatedAudio: voiceCloneResult.clonedAudio,
+            translationResult,
+            similarity: voiceCloneResult.similarity
+          };
+        }
+      }
+
+      // Fallback to standard TTS
+      const audioPath = await this.synthesizeTextToSpeech(
+        translationResult.translatedText,
+        targetLanguage
+      );
+      
+      const audioBase64 = await RNFS.readFile(audioPath, 'base64');
+      
+      return {
+        translatedAudio: audioBase64,
+        translationResult
+      };
+    } catch (error) {
+      console.error('Real-time voice cloning failed:', error);
+      return null;
+    }
+  }
+
+  // Enhanced TTS with voice characteristics
+  async synthesizeTextToSpeechWithVoice(
+    text: string,
+    language: string,
+    voiceProfile?: VoiceProfile,
+    characteristics?: any
+  ): Promise<string> {
+    try {
+      if (this.voiceCloningEnabled && voiceProfile) {
+        const result = await VoiceCloningService.synthesizeVoiceWithCloning(
+          text,
+          voiceProfile.id,
+          {
+            language,
+            characteristics: characteristics || voiceProfile.characteristics,
+            quality: 'high'
+          }
+        );
+        
+        return result.audioPath;
+      } else {
+        // Fallback to standard TTS
+        return await this.synthesizeTextToSpeech(text, language);
+      }
+    } catch (error) {
+      console.error('Voice synthesis failed:', error);
+      // Fallback to standard TTS
+      return await this.synthesizeTextToSpeech(text, language);
+    }
+  }
+
+  // Voice quality enhancement
+  async enhanceVoiceQuality(audioPath: string): Promise<string> {
+    try {
+      if (this.voiceCloningEnabled) {
+        return await VoiceCloningService.enhanceVoiceQuality(audioPath);
+      } else {
+        // Return original path if enhancement not available
+        return audioPath;
+      }
+    } catch (error) {
+      console.error('Voice enhancement failed:', error);
+      return audioPath;
+    }
+  }
+
+  // Voice comparison for profile matching
+  async compareVoiceProfiles(profileId1: string, profileId2: string): Promise<number> {
+    try {
+      if (!this.voiceCloningEnabled) {
+        return 0;
+      }
+
+      return await VoiceCloningService.compareVoices(profileId1, profileId2);
+    } catch (error) {
+      console.error('Voice comparison failed:', error);
+      return 0;
+    }
+  }
+
+  // Get voice cloning status and capabilities
+  async getVoiceCloningStatus(): Promise<{
+    enabled: boolean;
+    modelsLoaded: boolean;
+    availableProfiles: number;
+    capabilities: string[];
+  }> {
+    try {
+      const enabled = this.voiceCloningEnabled;
+      const modelsLoaded = enabled && await VoiceCloningService.isReady();
+      const profiles = await this.getVoiceProfiles();
+      
+      const capabilities = [];
+      if (enabled) {
+        capabilities.push('Voice Profile Creation');
+        capabilities.push('Voice Synthesis');
+        capabilities.push('Voice Cloning');
+        capabilities.push('Real-time Processing');
+        capabilities.push('Voice Enhancement');
+        capabilities.push('Emotion Synthesis');
+      }
+
+      return {
+        enabled,
+        modelsLoaded,
+        availableProfiles: profiles.length,
+        capabilities
+      };
+    } catch (error) {
+      console.error('Failed to get voice cloning status:', error);
+      return {
+        enabled: false,
+        modelsLoaded: false,
+        availableProfiles: 0,
+        capabilities: []
+      };
     }
   }
 
