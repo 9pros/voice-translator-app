@@ -34,7 +34,7 @@
     "@react-navigation/bottom-tabs": "^6.5.11",
     "@react-navigation/stack": "^6.3.20",
     "@react-native-async-storage/async-storage": "^1.19.5",
-    "react-native-onnxruntime": "^1.16.0"
+    "onnxruntime-react-native": "^1.17.0"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
