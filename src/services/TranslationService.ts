@@ -1,16 +1,21 @@
 import {TranslationResult, Language, VoiceProfile} from '../types';
+import SeamlessM4TService from './SeamlessM4TService';
 
 class TranslationService {
   private apiKey: string = '';
   private baseUrl: string = 'https://api.openai.com/v1';
   
-  // Alternative APIs for translation
+  // Alternative APIs for translation (fallback when SeamlessM4T is not available)
   private googleTranslateUrl: string = 'https://translation.googleapis.com/language/translate/v2';
   private azureTranslateUrl: string = 'https://api.cognitive.microsofttranslator.com/translate';
+  
+  // Native processing preference
+  private useNativeProcessing: boolean = true;
 
   constructor() {
     // Initialize with API keys from environment or config
     this.loadApiKeys();
+    this.initializeNativeProcessing();
   }
 
   private async loadApiKeys() {
@@ -24,6 +29,22 @@ class TranslationService {
     }
   }
 
+  private async initializeNativeProcessing() {
+    try {
+      const isInitialized = await SeamlessM4TService.initialize();
+      if (isInitialized) {
+        console.log('Native SeamlessM4T processing enabled');
+        this.useNativeProcessing = true;
+      } else {
+        console.log('Falling back to API-based translation');
+        this.useNativeProcessing = false;
+      }
+    } catch (error) {
+      console.error('Failed to initialize native processing:', error);
+      this.useNativeProcessing = false;
+    }
+  }
+
   async translateText(
     text: string,
     sourceLanguage: string,
@@ -31,7 +52,16 @@ class TranslationService {
     voiceProfile?: VoiceProfile,
   ): Promise<TranslationResult> {
     try {
-      // Primary translation using OpenAI GPT
+      // Try native processing first
+      if (this.useNativeProcessing && await SeamlessM4TService.isReady()) {
+        return await SeamlessM4TService.translateTextToText(
+          text,
+          sourceLanguage,
+          targetLanguage,
+        );
+      }
+
+      // Fallback to API-based translation
       const translatedText = await this.translateWithOpenAI(
         text,
         sourceLanguage,
@@ -43,7 +73,7 @@ class TranslationService {
         translatedText,
         sourceLanguage,
         targetLanguage,
-        confidence: 0.95, // Mock confidence score
+        confidence: 0.95,
         timestamp: new Date(),
       };
     } catch (error) {
@@ -276,4 +306,3 @@ class TranslationService {
 }
 
 export default new TranslationService();
-

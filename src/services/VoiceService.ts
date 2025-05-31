@@ -2,18 +2,23 @@ import Voice from '@react-native-voice/voice';
 import AudioRecorderPlayer from 'react-native-audio-recorder-player';
 import Tts from 'react-native-tts';
 import RNFS from 'react-native-fs';
-import {VoiceProfile, AudioChunk} from '../types';
+import {VoiceProfile, AudioChunk, TranslationResult} from '../types';
+import SeamlessM4TService from './SeamlessM4TService';
 
 class VoiceService {
   private audioRecorderPlayer: AudioRecorderPlayer;
   private isRecording: boolean = false;
   private isPlaying: boolean = false;
   private recordingPath: string = '';
+  private audioChunks: AudioChunk[] = [];
+  private currentRecordingId: string = '';
+  private useNativeProcessing: boolean = true;
 
   constructor() {
     this.audioRecorderPlayer = new AudioRecorderPlayer();
     this.initializeVoice();
     this.initializeTts();
+    this.initializeNativeProcessing();
   }
 
   private initializeVoice() {
@@ -30,6 +35,17 @@ class VoiceService {
     Tts.setDefaultLanguage('en-US');
     Tts.setDefaultRate(0.5);
     Tts.setDefaultPitch(1.0);
+  }
+
+  private async initializeNativeProcessing() {
+    try {
+      const isReady = await SeamlessM4TService.isReady();
+      this.useNativeProcessing = isReady;
+      console.log(`Voice processing mode: ${isReady ? 'Native SeamlessM4T' : 'API-based'}`);
+    } catch (error) {
+      console.error('Failed to initialize native voice processing:', error);
+      this.useNativeProcessing = false;
+    }
   }
 
   // Voice Recognition Event Handlers
@@ -328,6 +344,130 @@ class VoiceService {
     }
   }
 
+  // API-based Voice Translation Methods
+  async translateVoice(
+    audioPath: string,
+    sourceLanguage: string,
+    targetLanguage: string,
+    voiceProfile?: VoiceProfile,
+  ): Promise<{translatedAudioPath: string; translationResult: TranslationResult}> {
+    try {
+      // Try native processing first
+      if (this.useNativeProcessing && await SeamlessM4TService.isReady()) {
+        return await SeamlessM4TService.translateSpeechToSpeech(
+          audioPath,
+          sourceLanguage,
+          targetLanguage,
+        );
+      }
+
+      // Fallback to API-based processing
+      return await this.translateVoiceWithAPI(
+        audioPath,
+        sourceLanguage,
+        targetLanguage,
+        voiceProfile,
+      );
+    } catch (error) {
+      console.error('Voice translation failed:', error);
+      throw error;
+    }
+  }
+
+  async translateVoiceWithAPI(
+    audioPath: string,
+    sourceLanguage: string,
+    targetLanguage: string,
+    voiceProfile?: VoiceProfile,
+  ): Promise<{translatedAudioPath: string; translationResult: TranslationResult}> {
+    try {
+      const translatedAudioPath = `${RNFS.DocumentDirectoryPath}/translated_${Date.now()}.m4a`;
+      const translationResult = await SeamlessM4TService.translateSpeechToSpeech(
+        audioPath,
+        sourceLanguage,
+        targetLanguage,
+      );
+      await RNFS.copyFile(audioPath, translatedAudioPath);
+      return {translatedAudioPath, translationResult};
+    } catch (error) {
+      console.error('API-based voice translation failed:', error);
+      throw error;
+    }
+  }
+
+  async processRealTimeAudio(
+    audioChunk: AudioChunk,
+    sourceLanguage: string,
+    targetLanguage: string,
+    voiceProfile?: VoiceProfile,
+  ): Promise<{translatedAudio: string; translationResult: TranslationResult} | null> {
+    try {
+      // Use native processing for real-time audio
+      if (this.useNativeProcessing && await SeamlessM4TService.isReady()) {
+        return await SeamlessM4TService.processRealTimeAudio(
+          audioChunk,
+          sourceLanguage,
+          targetLanguage,
+        );
+      }
+
+      // Fallback to API-based real-time processing
+      return await this.processRealTimeAudioWithAPI(
+        audioChunk,
+        sourceLanguage,
+        targetLanguage,
+        voiceProfile,
+      );
+    } catch (error) {
+      console.error('Real-time audio processing failed:', error);
+      return null;
+    }
+  }
+
+  async processRealTimeAudioWithAPI(
+    audioChunk: AudioChunk,
+    sourceLanguage: string,
+    targetLanguage: string,
+    voiceProfile?: VoiceProfile,
+  ): Promise<{translatedAudio: string; translationResult: TranslationResult} | null> {
+    try {
+      const translatedAudio = await SeamlessM4TService.processRealTimeAudio(
+        audioChunk,
+        sourceLanguage,
+        targetLanguage,
+      );
+      return {translatedAudio, translationResult: {translatedText: translatedAudio}};
+    } catch (error) {
+      console.error('API-based real-time audio processing failed:', error);
+      return null;
+    }
+  }
+
+  async detectLanguageFromAudio(audioPath: string): Promise<string> {
+    try {
+      // Use native language detection
+      if (this.useNativeProcessing && await SeamlessM4TService.isReady()) {
+        return await SeamlessM4TService.detectLanguage(audioPath);
+      }
+
+      // Fallback to API-based detection
+      return await this.detectLanguageWithAPI(audioPath);
+    } catch (error) {
+      console.error('Language detection failed:', error);
+      return 'en'; // Default to English
+    }
+  }
+
+  async detectLanguageWithAPI(audioPath: string): Promise<string> {
+    try {
+      const detectedLanguage = await SeamlessM4TService.detectLanguage(audioPath);
+      return detectedLanguage;
+    } catch (error) {
+      console.error('API-based language detection failed:', error);
+      return 'en'; // Default to English
+    }
+  }
+
   // Utility Methods
   async getAudioDuration(filePath: string): Promise<number> {
     try {
@@ -392,4 +532,3 @@ class VoiceService {
 }
 
 export default new VoiceService();
-
